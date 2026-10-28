@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Composer Prediction",
+    "description": "Shows a dimmed suggestion for your next message in the empty composer after a turn; Tab turns it into a draft, Esc ignores it."
+  }
+}

@@ -1,0 +1,134 @@
+<!doctype html>
+<!--
+  Interaction demo for the ghost-text half of the plugin.
+
+  Loads ../src/ghost.js — the SAME file the DSH client bundle ships — against a
+  plain textarea, so the fallback path (no DSH placeholder layer) can be checked
+  without installing anything. demo/dsh.html covers the real DSH composer DOM.
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Composer prediction — textarea fallback</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1d2129;
+        --muted: #86909c;
+        --line: #e5e6eb;
+        --card: #ffffff;
+        --accent: #2f6fed;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg:#17181c; --fg:#e8e8ea; --muted:#8b8d98; --line:#2b2d33; --card:#1e1f24; --accent:#6b9bff; }
+      }
+      * { box-sizing: border-box; }
+      body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
+             font:14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+             display:flex; flex-direction:column; }
+      header { padding:18px 24px 0; }
+      header h1 { font-size:15px; margin:0 0 4px; font-weight:600; }
+      header p { margin:0; color:var(--muted); font-size:12px; }
+      main { flex:1; padding:24px; display:flex; flex-direction:column; justify-content:flex-end; gap:12px; }
+      .thread { max-width:720px; width:100%; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+      .msg { max-width:88%; padding:10px 14px; border-radius:12px; border:1px solid var(--line); }
+      .msg.user { align-self:flex-end; background:color-mix(in srgb, var(--accent) 10%, transparent); }
+      .msg.assistant { align-self:flex-start; background:var(--card); }
+      .composer-wrap { max-width:720px; width:100%; margin:0 auto; }
+      .composer { display:flex; align-items:flex-end; gap:10px; padding:8px 12px 10px;
+                  border:1px solid var(--line); border-radius:16px; background:var(--card); position:relative; }
+      textarea { flex:1; min-height:36px; max-height:336px; resize:none; border:none; outline:none;
+                 background:transparent; color:var(--fg); font:inherit; padding:4px 8px 0 14px; }
+      .send { border:none; border-radius:10px; background:var(--accent); color:#fff; width:32px; height:32px;
+              cursor:pointer; flex:none; }
+      .send[disabled] { opacity:.35; cursor:default; }
+      .controls { max-width:720px; width:100%; margin:0 auto; display:flex; align-items:center; gap:12px;
+                  color:var(--muted); font-size:12px; }
+      .controls button { border:1px solid var(--line); background:transparent; color:inherit; font:inherit;
+                         border-radius:8px; padding:4px 10px; cursor:pointer; }
+      kbd { border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:0 5px; font-size:11px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Composer prediction — textarea fallback</h1>
+      <p>没有 DSH 占位层时的兜底：叠层量 textarea 自己的盒子。<kbd>Tab</kbd> 接受，<kbd>Esc</kbd> 或打字忽略。</p>
+    </header>
+    <main>
+      <div class="thread">
+        <div class="msg user">把 parse() 的边界条件补上，然后跑一下测试</div>
+        <div class="msg assistant">已给 parse() 补了空字符串和超长输入的边界，并新增 3 个用例。测试全部通过（12 passed）。</div>
+      </div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <textarea id="composer" rows="1" placeholder="给 DSH 发消息…" aria-label="给 DSH 发消息"></textarea>
+          <button class="send" id="send" disabled type="button">↑</button>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="repredict" type="button">重新预测</button>
+        <span id="status"></span>
+      </div>
+    </main>
+
+    <script src="../src/ghost.js"></script>
+    <script>
+      const textarea = document.getElementById('composer')
+      const status = document.getElementById('status')
+      const send = document.getElementById('send')
+
+      let prediction = ''
+      let timer = 0
+
+      const layer = createComposerGhost(textarea, {
+        onAccept: accept,
+        onDismiss: dismiss,
+      })
+
+      function accept(text) {
+        const value = String(text || prediction || '').trim()
+        if (!value) return
+        prediction = ''
+        // Same write path the plugin uses: inputActions.setDraft(text).
+        textarea.value = value
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+        textarea.focus()
+        textarea.setSelectionRange(value.length, value.length)
+        paint()
+        status.textContent = '已接受：文字变成真实草稿，没有发送'
+      }
+
+      function dismiss() {
+        prediction = ''
+        paint()
+        status.textContent = '已忽略（Esc 或打字）'
+      }
+
+      function paint() {
+        layer.setText(textarea.value ? '' : prediction)
+        send.disabled = textarea.value === ''
+      }
+
+      function predict() {
+        clearTimeout(timer)
+        prediction = ''
+        paint()
+        status.textContent = '正在预测下一句…'
+        timer = setTimeout(() => {
+          prediction = '顺手把这次改动提交了吗？提交信息我一起写好'
+          paint()
+          status.textContent = prediction ? '建议已出现：Tab 接受 / Esc 忽略' : ''
+        }, 700)
+      }
+
+      textarea.addEventListener('input', () => {
+        if (textarea.value) prediction = ''
+        paint()
+      })
+      document.getElementById('repredict').addEventListener('click', predict)
+      predict()
+    </script>
+  </body>
+</html>

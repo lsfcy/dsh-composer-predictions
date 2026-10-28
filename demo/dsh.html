@@ -1,0 +1,200 @@
+<!doctype html>
+<!--
+  Same ghost layer (../src/ghost.js), but against a copy of the REAL DSH
+  composer shape: a Lexical-style contenteditable `[data-composer-input]` plus
+  a separate absolutely-positioned `[data-composer-placeholder]` inside a
+  position:relative `.grow` wrapper, all inside the composer seat that hosts
+  the plugin's hidden dock anchor. This is the path the plugin takes inside
+  DSH; demo/index.html covers the plain-textarea fallback.
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Composer prediction — DSH composer DOM</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1d2129;
+        --caption: #86909c;
+        --line: #e5e6eb;
+        --card: #ffffff;
+        --accent: #2f6fed;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg:#17181c; --fg:#e8e8ea; --caption:#8b8d98; --line:#2b2d33; --card:#1e1f24; --accent:#6b9bff; }
+      }
+      * { box-sizing: border-box; }
+      body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
+             font:14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+             display:flex; flex-direction:column; }
+      header { padding:18px 24px 0; }
+      header h1 { font-size:15px; margin:0 0 4px; font-weight:600; }
+      header p { margin:0; color:var(--caption); font-size:12px; }
+      main { flex:1; padding:24px; display:flex; flex-direction:column; justify-content:flex-end; gap:12px; }
+      .thread { max-width:720px; width:100%; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+      .msg { max-width:88%; padding:10px 14px; border-radius:12px; border:1px solid var(--line); }
+      .msg.user { align-self:flex-end; background:color-mix(in srgb, var(--accent) 10%, transparent); }
+      .msg.assistant { align-self:flex-start; background:var(--card); white-space:pre-wrap; }
+      .wrap { max-width:720px; width:100%; margin:0 auto; }
+      /* --- the DSH composer shape --- */
+      .card { display:flex; flex-direction:column; gap:12px; padding:8px 12px 10px;
+              border:1px solid var(--line); border-radius:16px; background:var(--card); position:relative; }
+      .scroll { max-height:336px; margin-right:4px; overflow-y:auto; }
+      .grow { position:relative; }
+      .input { min-height:36px; padding:4px 8px 0 14px; white-space:pre-wrap; outline:none; }
+      .placeholder { position:absolute; inset:4px 8px auto 14px; overflow:hidden; white-space:nowrap;
+                     text-overflow:ellipsis; pointer-events:none; user-select:none; color:var(--caption); }
+      .row { display:flex; justify-content:space-between; align-items:center; color:var(--caption); font-size:12px; }
+      .send { border:none; border-radius:10px; background:var(--accent); color:#fff; width:32px; height:32px; cursor:pointer; }
+      .send[disabled] { opacity:.35; cursor:default; }
+      .controls { max-width:720px; width:100%; margin:0 auto; display:flex; align-items:center; gap:12px;
+                  color:var(--caption); font-size:12px; }
+      .controls button { border:1px solid var(--line); background:transparent; color:inherit; font:inherit;
+                         border-radius:8px; padding:4px 10px; cursor:pointer; }
+      kbd { border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:0 5px; font-size:11px; }
+      /* Screenshot mode: keep the conversation and composer, drop the harness chrome. */
+      body.shot header, body.shot .controls { display:none; }
+      body.shot main { padding:24px 24px 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Composer prediction — DSH composer DOM</h1>
+      <p>contenteditable + 独立占位层，和 DSH 的 <code>.grow</code> 结构一致。空框里出现灰字建议，<kbd>Tab</kbd> 接受，<kbd>Esc</kbd> 或打字忽略。</p>
+    </header>
+    <main>
+      <div class="thread">
+        <div class="msg user" data-copy="user"></div>
+        <div class="msg assistant" data-copy="assistant"></div>
+      </div>
+      <div class="wrap" data-conversation-region="composer">
+        <!-- the plugin's dock entry renders this hidden anchor; the layer finds
+             the editor through it instead of guessing from the document -->
+        <div data-composer-predictions="anchor" aria-hidden="true" style="display:none"></div>
+        <div class="card" data-composer-card>
+          <div class="scroll" data-input-scroll>
+            <div class="grow">
+              <div class="input" data-composer-input contenteditable="true" role="textbox" aria-multiline="true"></div>
+              <div class="placeholder" data-composer-placeholder></div>
+            </div>
+          </div>
+          <div class="row">
+            <span>deepseek-flash</span>
+            <button class="send" id="send" disabled>↑</button>
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="repredict" type="button">重新预测</button>
+        <button id="clear" type="button">清空输入框</button>
+        <span id="status"></span>
+      </div>
+    </main>
+
+    <script src="../src/ghost.js"></script>
+    <script>
+      const params = new URLSearchParams(location.search)
+      const lang = params.get('lang') === 'en' ? 'en' : 'zh'
+      if (params.has('shot')) document.body.classList.add('shot')
+      const COPY = {
+        zh: {
+          user: '把 parse() 的边界条件补上，然后跑一下测试',
+          assistant: '已给 parse() 补了空字符串和超长输入的边界，并新增 3 个用例。测试全部通过（12 passed）。',
+          placeholder: '给 DSH 发消息…',
+          prediction: '顺手把这次改动提交了吗？提交信息我一起写好',
+          title: 'Composer prediction — DSH composer DOM',
+        },
+        en: {
+          user: 'Handle parse() edge cases, then run the tests',
+          assistant: 'I added empty-string and oversized-input edge cases to parse() and three new tests. All 12 tests pass.',
+          placeholder: 'Message DSH…',
+          prediction: 'Want me to commit this change? I can write the message.',
+          title: 'Composer prediction — DSH composer DOM',
+        },
+      }
+      const text = COPY[lang]
+      document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
+      document.title = text.title
+      document.querySelectorAll('[data-copy]').forEach((node) => { node.textContent = text[node.dataset.copy] })
+      const editor = document.querySelector('[data-composer-input]')
+      const placeholder = document.querySelector('[data-composer-placeholder]')
+      editor.setAttribute('aria-label', text.placeholder)
+      placeholder.textContent = text.placeholder
+
+      const anchor = document.querySelector('[data-composer-predictions="anchor"]')
+      const seat = anchor.closest('[data-conversation-region="composer"]')
+      const status = document.getElementById('status')
+      const send = document.getElementById('send')
+
+      let prediction = ''
+      let timer = 0
+
+      const layer = createComposerGhost(editor, {
+        onAccept: accept,
+        onDismiss: dismiss,
+        canIntercept: () => document.querySelector('[data-composer-overlay]') === null,
+      })
+
+      function caretToEnd() {
+        const range = document.createRange()
+        range.selectNodeContents(editor)
+        range.collapse(false)
+        const selection = window.getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+      }
+
+      function accept(text) {
+        const value = String(text || prediction || '').trim()
+        if (!value) return
+        prediction = ''
+        // Same write path as inputActions.setDraft(text) in the plugin.
+        editor.textContent = value
+        editor.dispatchEvent(new Event('input', { bubbles: true }))
+        editor.focus()
+        caretToEnd()
+        paint()
+        status.textContent = '已接受：文字变成真实草稿，没有发送'
+      }
+
+      function dismiss() {
+        prediction = ''
+        paint()
+        status.textContent = '已忽略（Esc 或打字）'
+      }
+
+      function paint() {
+        const empty = composerGhostIsEmpty(editor)
+        layer.setText(empty ? prediction : '')
+        send.disabled = !empty
+      }
+
+      function predict() {
+        clearTimeout(timer)
+        prediction = ''
+        paint()
+        status.textContent = '正在预测下一句…'
+        timer = setTimeout(() => {
+          prediction = text.prediction
+          paint()
+          status.textContent = prediction ? '建议已出现：Tab 接受 / Esc 忽略' : ''
+        }, 700)
+      }
+
+      editor.addEventListener('input', () => {
+        // The plugin dismisses on the first real edit; keep the harness honest.
+        if (!composerGhostIsEmpty(editor)) prediction = ''
+        paint()
+      })
+      document.getElementById('repredict').addEventListener('click', predict)
+      document.getElementById('clear').addEventListener('click', () => {
+        editor.textContent = ''
+        editor.focus()
+        paint()
+      })
+      predict()
+    </script>
+  </body>
+</html>
