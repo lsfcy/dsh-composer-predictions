@@ -21,23 +21,31 @@
 
 仅适用于 DSH 的 Web / 桌面端（0.2.x），不能用于其他 agent/harness。
 
-**方式一（推荐，已在 DSH 会话里）**：让 agent 执行
+**方式一（推荐，终端）**：
+
+```bash
+dsh plugin --profile desktop add @lsfcy/dsh-composer-predictions
+```
+
+装完**不用重启**：运行中的 DSH 会监听 profile 的 bundle 清单，装好即加载，已经打开的页面也会直接挂上新插件。桌面端 profile 是 `desktop`；
+其他入口用 `~/.dsh/profiles` 里对应的名字，如 `web`。不想走 npm 时，也可以用固定版本：
+`dsh plugin --profile desktop add git+https://github.com/lsfcy/dsh-composer-predictions.git#v0.1.3`。
+
+灰字一直不出现就刷新一次页面；万一安装时宿主报了模块加载失败（pnpm 正在改写 `node_modules`，宿主读到了半写入的文件），重启一次 DSH 即可。
+
+**提示 `command not found: dsh`** 说明终端里没有 CLI，先补上再装插件：
+
+- 桌面端：菜单栏 `DeepSeek Harness → 管理 dsh 命令…`，按提示把 `dsh` 链接到终端。
+- 或者 npm 全局安装（需要先有 Node.js）：`npm install -g @deepseek-ai/dsh`。
+
+**方式二（备选，在 DSH 会话里）**：让 agent 执行
 
 ```
 plugin_manager  action: install_bundle
                 target: @lsfcy/dsh-composer-predictions
 ```
 
-即时生效，不用重启（页面没更新就刷新一次）。
-
-**方式二（终端）**：
-
-```bash
-dsh plugin --profile desktop add @lsfcy/dsh-composer-predictions
-```
-
-装完重启 DSH。桌面端 profile 是 `desktop`；其他入口用 `~/.dsh/profiles` 里对应的名字，如 `web`。不想走 npm 时，也可以用固定版本：
-`dsh plugin --profile desktop add git+https://github.com/lsfcy/dsh-composer-predictions.git#v0.1.2`。
+这条路依赖 agent 工具和当前 profile 状态，失败率更高；装不上就用方式一，效果一样。
 
 ## 配置
 

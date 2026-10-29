@@ -1,6 +1,7 @@
 # Bundle patch: installing this package by name inserts its loader row.
-# `plugin_manager` install_bundle applies this; do not also append the row to a
-# profile patch by hand (duplicate loader ids are a startup error).
+# `dsh plugin --profile <name> add` and `plugin_manager` install_bundle both
+# apply this; do not also append the row to a profile patch by hand (duplicate
+# loader ids are a startup error).
 - insert:
     - id: composer-predictions
       name: "@lsfcy/dsh-composer-predictions"

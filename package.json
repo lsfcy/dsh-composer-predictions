@@ -1,6 +1,6 @@
 {
   "name": "@lsfcy/dsh-composer-predictions",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "license": "MIT",
   "description": "Codex-style composer predictions for DeepSeek Harness: after a turn settles, the empty composer shows a dimmed suggestion of your next message; Tab accepts it.",

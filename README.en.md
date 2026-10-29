@@ -21,23 +21,32 @@ Press Tab and it becomes an editable draft. Press Esc, or start typing, and it d
 
 DSH Web / desktop only (0.2.x). It does not work in other agents or harnesses.
 
-**Option 1 (recommended, inside a DSH session)**: ask the agent to run
+**Option 1 (recommended, terminal)**:
+
+```bash
+dsh plugin --profile desktop add @lsfcy/dsh-composer-predictions
+```
+
+No restart needed: a running DSH watches the profile's bundle list and loads the plugin on install, including into pages that are
+already open. The desktop app uses `desktop`; other entrypoints use their profile under `~/.dsh/profiles`, e.g. `web`. To pin a
+version without npm: `dsh plugin --profile desktop add git+https://github.com/lsfcy/dsh-composer-predictions.git#v0.1.3`.
+
+If the suggestion never shows up, refresh the page once; if the host logged a module load failure during the install (pnpm
+rewriting `node_modules` under a live host), restart DSH once.
+
+**If you get `command not found: dsh`**, the CLI is not on your PATH — install it first:
+
+- Desktop app: menu bar `DeepSeek Harness → 管理 dsh 命令…` links `dsh` into your terminal.
+- Or install it globally with npm (Node.js required): `npm install -g @deepseek-ai/dsh`.
+
+**Option 2 (fallback, inside a DSH session)**: ask the agent to run
 
 ```
 plugin_manager  action: install_bundle
                 target: @lsfcy/dsh-composer-predictions
 ```
 
-It applies without a restart (refresh the page if the UI does not update).
-
-**Option 2 (terminal)**:
-
-```bash
-dsh plugin --profile desktop add @lsfcy/dsh-composer-predictions
-```
-
-Restart DSH afterwards. The desktop app uses `desktop`; other entrypoints use their profile under `~/.dsh/profiles`, e.g. `web`. To pin a version without npm:
-`dsh plugin --profile desktop add git+https://github.com/lsfcy/dsh-composer-predictions.git#v0.1.2`.
+That path depends on the agent tool and live profile state and fails more often; if it does, use Option 1 — same result.
 
 ## Config
 
