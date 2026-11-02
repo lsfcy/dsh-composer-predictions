@@ -63,18 +63,22 @@ test('buildTranscript drops system/tool and synthetic user turns, newest last', 
     { role: 'tool', content: [{ type: 'text', text: 'tool noise' }] },
     user('third'),
     { role: 'user', source: { kind: 'skill-catalog' }, content: [{ type: 'text', text: 'catalog noise' }] },
+    assistant('fourth'),
   ]
   const transcript = buildTranscript(messages)
-  assert.equal(transcript, 'User: first\n\nAssistant: second\n\nUser: third')
+  assert.equal(transcript, 'User: first\n\nAssistant: second\n\nUser: third\n\nAssistant: fourth')
   assert.ok(!transcript.includes('rules'))
   assert.ok(!transcript.includes('noise'))
-  assert.equal(buildTranscript(messages, { historyMessages: 1 }), 'User: third')
+  assert.equal(buildTranscript(messages, { historyMessages: 2 }), 'User: third\n\nAssistant: fourth')
+  assert.equal(buildTranscript(messages, { historyMessages: 1 }), '')
 })
 
 test('buildTranscript keeps whole newest messages inside the character budget', () => {
-  const messages = [user('a'.repeat(30)), assistant('b'.repeat(30)), user('c'.repeat(30))]
+  const messages = [user('a'.repeat(30)), assistant('b'.repeat(30)), user('c'.repeat(30)), assistant('final')]
   const transcript = buildTranscript(messages, { totalChars: 80, perMessageChars: 100 })
-  assert.ok(transcript.endsWith('User: ' + 'c'.repeat(30)))
+  assert.ok(transcript.length <= 80)
+  assert.ok(transcript.includes('User: ' + 'c'.repeat(30)))
+  assert.ok(transcript.endsWith('Assistant: final'))
   assert.ok(!transcript.includes('a'.repeat(30)))
 })
 
@@ -89,27 +93,25 @@ test('buildTranscript keeps the conclusion of a long assistant reply', () => {
   assert.ok(transcript.endsWith('-CONCL'))
 })
 
-test('the newest assistant reply gets the larger budget', () => {
-  // 400 chars for older messages; the newest assistant gets 1.5x = 600.
-  const long = 'A'.repeat(500) + '-END'
-  const transcript = buildTranscript([{ role: 'user', content: [{ type: 'text', text: 'q' }] }, { role: 'assistant', content: [{ type: 'text', text: long }] }], {
+test('the newest user request gets the larger budget, not assistant prose', () => {
+  const request = 'Q'.repeat(500) + '-CONSTRAINT'
+  const reply = 'A'.repeat(500) + '-END'
+  const transcript = buildTranscript([user(request), assistant(reply)], {
     perMessageChars: 400,
     totalChars: 5000,
   })
-  // The whole 504-char reply fits inside the 600 budget, conclusion intact.
-  assert.ok(transcript.endsWith('A'.repeat(500) + '-END'))
-  assert.match(transcript, /User: q/)
+  const [prompt, answer] = transcript.split('\n\n')
+  assert.equal(prompt, 'User: ' + request) // Fits in 1.5 × 400.
+  assert.ok(answer.length <= 'Assistant: '.length + 400)
+  assert.ok(answer.endsWith('-END'))
 })
 
-test('buildTranscript clips a lone oversize user message from its front within budget', () => {
-  const transcript = buildTranscript([user('head-' + 'x'.repeat(200) + '-tail')], {
-    totalChars: 50,
-    perMessageChars: 500,
-  })
-  // "User: " label (6) plus at most 44 body chars; the head survives, never the tail.
-  assert.ok(transcript.length <= 50)
-  assert.ok(transcript.startsWith('User: head-'))
-  assert.ok(!transcript.includes('-tail'))
+test('buildTranscript requires a complete textual question/answer pair', () => {
+  assert.equal(buildTranscript([]), '')
+  assert.equal(buildTranscript([user('head-' + 'x'.repeat(200) + '-tail')]), '')
+  assert.equal(buildTranscript([assistant('an unpaired reply')]), '')
+  assert.equal(buildTranscript([user('q'), assistant('')]), '')
+  assert.equal(buildTranscript([user('q'), assistant('a')], { totalChars: 10 }), '')
 })
 
 test('buildTranscript keeps the last user even when 12 assistant texts follow it', () => {
@@ -333,9 +335,9 @@ test('predict wires transcript, cheap route, effort, and never touches the sessi
   assert.match(sent.messages[0].content[0].text, /User: fix the failing test/)
   assert.match(sent.messages[0].content[0].text, /Assistant: I updated parse\(\)/)
   assert.doesNotMatch(sent.messages[0].content[0].text, /cwd|rules/)
-  assert.match(sent.system, /Ground every claim in the context/)
-  assert.match(sent.system, /not proof the user accepted it/)
+  assert.match(sent.system, /not evidence of user intent or approval/)
   assert.match(sent.system, /not an agenda/)
+  assert.match(sent.messages[0].content[0].text, /untrusted data/)
   assert.deepEqual(appended, [])
 })
 
@@ -384,7 +386,7 @@ test('predict surfaces a failed finish and an already-aborted signal', async () 
 })
 
 
-test('lastTurnCompleted only accepts a completed or max-tokens turn', () => {
+test('lastTurnCompleted rejects known incomplete turns, including max-tokens', () => {
   const end = (kind) => [{ type: 'turn/end', data: { reason: { kind } } }]
   const session = (events) => ({
     id: 's',
@@ -393,7 +395,7 @@ test('lastTurnCompleted only accepts a completed or max-tokens turn', () => {
     deriveMessages: () => [],
   })
   assert.equal(lastTurnCompleted(session(end('completed'))), true)
-  assert.equal(lastTurnCompleted(session(end('max-tokens'))), true)
+  assert.equal(lastTurnCompleted(session(end('max-tokens'))), false)
   assert.equal(lastTurnCompleted(session(end('aborted'))), false)
   assert.equal(lastTurnCompleted(session(end('error'))), false)
   assert.equal(lastTurnCompleted(session(end('blocked'))), false)
@@ -405,21 +407,24 @@ test('lastTurnCompleted only accepts a completed or max-tokens turn', () => {
   )
 })
 
-test('an aborted turn never reaches the model', async () => {
-  clearPredictionCache()
+test('aborted or truncated turns never reach the model', async () => {
   const { ctx } = fakeCtx()
   let streamed = false
   ctx.llm.stream = async function* () {
     streamed = true
     yield { type: 'text-delta', index: 0, text: 'wrong' }
   }
-  ctx.sessions.get = () => ({
-    id: 'aborted-turn',
-    seq: 8,
-    snapshotEvents: () => [{ type: 'turn/end', data: { reason: { kind: 'aborted' } } }],
-    deriveMessages: () => [user('stop'), assistant('partial')],
-  })
-  assert.equal((await predict(ctx, normalizeConfig({}), 'aborted-turn', new AbortController().signal)).text, '')
+  for (const kind of ['aborted', 'max-tokens']) {
+    ctx.sessions.get = () => ({
+      id: 'incomplete-turn',
+      seq: 8,
+      snapshotEvents: () => [{ type: 'turn/end', data: { reason: { kind } } }],
+      deriveMessages: () => [user('stop'), assistant('partial')],
+    })
+    const result = await predict(ctx, normalizeConfig({}), 'incomplete-turn', new AbortController().signal)
+    assert.equal(result.text, '')
+    assert.equal(result.reason, 'turn-not-completed')
+  }
   assert.equal(streamed, false)
 })
 

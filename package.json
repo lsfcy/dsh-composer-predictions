@@ -32,7 +32,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/unit.test.mjs test/bundle.test.mjs test/http.test.mjs"
+    "test": "node --test test/*.test.mjs"
   },
   "dsh": {
     "bundle": {
